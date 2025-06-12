@@ -22,7 +22,7 @@ from exceptions import BaseSecurityError
 from security.interfaces import JWTAuthManagerInterface
 
 
-from schemas.accounts import UserCreate, UserRead, Token
+from schemas.accounts import UserCreate, UserRead, Token, LoginRequest, ResetPasswordRequest
 from schemas.security import hash_password, verify_password, create_access_token, decode_token
 
 router = APIRouter()
@@ -49,15 +49,16 @@ async def register(user: UserCreate, db: AsyncSession = Depends(get_db)):
     return await create_user(db, user)
 
 @router.post("/login", response_model=Token)
-async def login(email: str, password: str, db: AsyncSession = Depends(get_db)):
-    db_user = await get_user_by_email(db, email)
-    if not db_user or not verify_password(password, db_user.hashed_password):
+async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)):
+    db_user = await get_user_by_email(db, payload.email)
+    if not db_user or not verify_password(payload.password, db_user.hashed_password):
         raise HTTPException(status_code=401, detail="Invalid email or password")
+
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
         data={"sub": db_user.email}, expires_delta=access_token_expires
     )
-    return {"access_token": access_token, "token_type": "bearer"}
+    return Token(access_token=access_token, token_type="bearer")
 
 
 async def get_current_user(
@@ -81,10 +82,11 @@ def read_me(current_user: UserRead = Depends(get_current_user)):
 
 
 @router.post("/reset_password")
-async def reset_password(email: str, new_password: str, db: AsyncSession = Depends(get_db)):
-    db_user = await get_user_by_email(db, email)
+async def reset_password(payload: ResetPasswordRequest, db: AsyncSession = Depends(get_db)):
+    db_user = await get_user_by_email(db, payload.email)
     if not db_user:
         raise HTTPException(status_code=404, detail="User not found")
-    db_user.hashed_password = hash_password(new_password)
+
+    db_user.hashed_password = hash_password(payload.new_password)
     await db.commit()
     return {"detail": "Password updated"}
